@@ -40,10 +40,17 @@ The assembling of the menu is done via a set of environment variables
 "bootmenu_<num>" and "bootmenu_delay", i.e.::
 
     bootmenu_delay=<delay>
+    bootmenu_order=<order>
     bootmenu_<num>="<title>=<commands>"
 
 <delay>
     autostart delay in seconds
+
+<order>
+    list of menu entries in order (top-down):
+    ``custom`` (manual entries) and ``efimgr`` (UEFI entries).
+    Unknown values are ignored. In case there are no valid values,
+    the default order ``custom efimgr`` is used.
 
 <num>
     is the boot menu entry number, starting from zero
