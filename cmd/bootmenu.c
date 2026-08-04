@@ -203,10 +203,11 @@ static int prepare_bootmenu_entry(struct bootmenu_data *menu,
 	char *sep;
 	const char *option;
 	unsigned short int i = *index;
+	unsigned short int env_i = 0;	/* env var bootmenu_N always starts at 0 */
 	struct bootmenu_entry *entry = NULL;
 	struct bootmenu_entry *iter = *current;
 
-	while ((option = bootmenu_getoption(i))) {
+while ((option = bootmenu_getoption(env_i))) {
 		char shortcut_key;
 		int len;
 
@@ -230,7 +231,7 @@ static int prepare_bootmenu_entry(struct bootmenu_data *menu,
 			return -ENOMEM;
 		}
 
-		shortcut_key = bootmenu_entry_shortcut_key(i);
+		shortcut_key = bootmenu_entry_shortcut_key(env_i);
 		/* Use emtpy space if entry doesn't support shortcut key */
 		snprintf(entry->title, len, "%c%c %s",
 			 shortcut_key > 0 ? shortcut_key : ' ',
@@ -259,6 +260,7 @@ static int prepare_bootmenu_entry(struct bootmenu_data *menu,
 
 		iter = entry;
 		++i;
+		++env_i;
 
 		if (i == MAX_COUNT - 1)
 			break;
@@ -365,6 +367,42 @@ static int prepare_uefi_bootorder_entry(struct bootmenu_data *menu,
 }
 #endif
 
+static int add_manual_entries(struct bootmenu_data *menu,
+				struct bootmenu_entry **iterp,
+				unsigned short int *ip)
+{
+	return prepare_bootmenu_entry(menu, iterp, ip);
+}
+
+static int add_uefi_entries(int uefi, struct bootmenu_data *menu,
+			     struct bootmenu_entry **iterp,
+			     unsigned short int *ip)
+{
+#if (IS_ENABLED(CONFIG_CMD_BOOTEFI_BOOTMGR)) && (IS_ENABLED(CONFIG_CMD_EFICONFIG))
+	int ret;
+	efi_status_t efi_ret;
+
+	if (!(uefi && *ip < MAX_COUNT - 1))
+		return 0;
+
+	/*
+	 * UEFI specification requires booting from removal media using
+	 * a architecture-specific default image name such as BOOTAA64.EFI.
+	 */
+	efi_ret = efi_bootmgr_update_media_device_boot_option();
+	if (efi_ret != EFI_SUCCESS)
+		return -1;
+
+	ret = prepare_uefi_bootorder_entry(menu, iterp, ip);
+	if (ret < 0 && ret != -ENOENT)
+		return ret;
+
+	return 0;
+#else
+	return 0;
+#endif
+}
+
 /**
  * bootmenu_create() - create boot menu entries
  *
@@ -379,6 +417,7 @@ static struct bootmenu_data *bootmenu_create(int uefi, int delay)
 	struct bootmenu_entry *iter = NULL;
 	struct bootmenu_entry *entry;
 	char *default_str;
+	bool uefi_first = env_get_yesno("bootmenu_order") == 1;
 
 	menu = malloc(sizeof(struct bootmenu_data));
 	if (!menu)
@@ -393,27 +432,23 @@ static struct bootmenu_data *bootmenu_create(int uefi, int delay)
 	if (default_str)
 		menu->active = (int)simple_strtol(default_str, NULL, 10);
 
-	ret = prepare_bootmenu_entry(menu, &iter, &i);
-	if (ret < 0)
-		goto cleanup;
-
-#if (IS_ENABLED(CONFIG_CMD_BOOTEFI_BOOTMGR)) && (IS_ENABLED(CONFIG_CMD_EFICONFIG))
-	if (uefi && i < MAX_COUNT - 1) {
-		efi_status_t efi_ret;
-
-		/*
-		 * UEFI specification requires booting from removal media using
-		 * a architecture-specific default image name such as BOOTAA64.EFI.
-		 */
-		efi_ret = efi_bootmgr_update_media_device_boot_option();
-		if (efi_ret != EFI_SUCCESS)
+	if (uefi_first) {
+		ret = add_uefi_entries(uefi, menu, &iter, &i);
+		if (ret < 0)
 			goto cleanup;
 
-		ret = prepare_uefi_bootorder_entry(menu, &iter, &i);
-		if (ret < 0 && ret != -ENOENT)
+		ret = add_manual_entries(menu, &iter, &i);
+		if (ret < 0)
+			goto cleanup;
+	} else {
+		ret = add_manual_entries(menu, &iter, &i);
+		if (ret < 0)
+			goto cleanup;
+
+		ret = add_uefi_entries(uefi, menu, &iter, &i);
+		if (ret < 0)
 			goto cleanup;
 	}
-#endif
 
 	/* Add Exit entry at the end */
 	if (i <= MAX_COUNT - 1) {
