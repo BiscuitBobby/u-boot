@@ -61,6 +61,7 @@ static inline int splash_source_load(struct splash_location *locations,
 #endif
 
 int splash_screen_prepare(void);
+void get_pos_env(const char *name, int *x, int *y);
 void splash_get_pos(int *x, int *y);
 int splash_display(void);
 

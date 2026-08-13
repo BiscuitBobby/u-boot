@@ -97,11 +97,11 @@ __weak int splash_screen_prepare(void)
 	return splash_video_logo_load();
 }
 
-void splash_get_pos(int *x, int *y)
+void get_pos_env(const char *name, int *x, int *y)
 {
-	char *s = env_get("splashpos");
+	char *s = env_get(name);
 
-	if (!CONFIG_IS_ENABLED(SPLASH_SCREEN_ALIGN) || !s)
+	if (!s || !*s)
 		return;
 
 	if (s[0] == 'm')
@@ -116,6 +116,14 @@ void splash_get_pos(int *x, int *y)
 		else
 			*y = simple_strtol(s + 1, NULL, 0);
 	}
+}
+
+void splash_get_pos(int *x, int *y)
+{
+	if (!CONFIG_IS_ENABLED(SPLASH_SCREEN_ALIGN))
+		return;
+
+	get_pos_env("splashpos", x, y);
 }
 
 #if CONFIG_IS_ENABLED(VIDEO) && !CONFIG_IS_ENABLED(HIDE_LOGO_VERSION)
