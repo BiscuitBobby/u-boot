@@ -6,6 +6,7 @@
 #include <charset.h>
 #include <cli.h>
 #include <command.h>
+#include <dm.h>
 #include <ansi.h>
 #include <efi_config.h>
 #include <efi_variable.h>
@@ -14,6 +15,7 @@
 #include <menu.h>
 #include <watchdog.h>
 #include <malloc.h>
+#include <video.h>
 #include <linux/delay.h>
 #include <linux/string.h>
 
@@ -469,6 +471,33 @@ cleanup:
 	return NULL;
 }
 
+static void bootmenu_draw_logo(void)
+{
+	char *env_logo_value, *s;
+	struct udevice *dev;
+	ulong bmp_load_addr;
+	int x = -4, y = 4;
+	int ret;
+
+	ret = uclass_get_device(UCLASS_VIDEO, 0, &dev);
+	if (ret)
+		return;
+
+	s = env_get("logopos");
+	if (s) {
+		x = simple_strtol(s, NULL, 0);
+		s = strchr(s, ',');
+		if (s)
+			y = simple_strtol(s + 1, NULL, 0);
+	}
+
+	env_logo_value = env_get("logoimage");
+	if (env_logo_value) {
+		bmp_load_addr = hextoul(env_logo_value, 0);
+		video_bmp_display(dev, bmp_load_addr, x, y, true);
+	}
+}
+
 static void menu_display_statusline(struct menu *m)
 {
 	struct bootmenu_entry *entry;
@@ -495,6 +524,9 @@ static void menu_display_statusline(struct menu *m)
 	puts(ANSI_CLEAR_LINE_TO_END);
 	printf(ANSI_CURSOR_POSITION, menu->count + 7, 1);
 	puts(ANSI_CLEAR_LINE);
+
+	bootmenu_draw_logo();
+
 }
 
 static void handle_uefi_bootnext(void)
