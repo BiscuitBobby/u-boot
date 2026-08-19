@@ -15,6 +15,7 @@
 #include <event.h>
 #include <efi_driver.h>
 #include <efi_loader.h>
+#include <env.h>
 #include <fs.h>
 #include <log.h>
 #include <part.h>
@@ -856,7 +857,29 @@ efi_status_t efi_disk_get_device_name(const efi_handle_t handle, char *buf, int 
 		count = snprintf(buf, size, "%s %d:%u", if_typename, diskid,
 				 part);
 	} else {
-		count = snprintf(buf, size, "%s %d", if_typename, diskid);
+		struct efi_device_path *node = NULL;
+		struct efi_handler *handler;
+		u16 *text = NULL;
+
+		/* SD/eMMC devices take their name from the device path */
+		if (IS_ENABLED(CONFIG_EFI_DEVICE_PATH_TO_TEXT) &&
+		    desc->uclass_id == UCLASS_MMC &&
+		    efi_search_protocol(handle, &efi_guid_device_path,
+					&handler) == EFI_SUCCESS)
+			node = (void *)
+				efi_dp_last_node(handler->protocol_interface);
+
+		if (node)
+			text = EFI_CALL(efi_device_path_to_text
+				.convert_device_node_to_text(node, true, true));
+
+		if (text) {
+			count = snprintf(buf, size, "%ls", text);
+			efi_free_pool(text);
+		} else {
+			count = snprintf(buf, size, "%s %d", if_typename,
+					 diskid);
+		}
 	}
 
 	if (count < 0 || (count + 1) > size)
