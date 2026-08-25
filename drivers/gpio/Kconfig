@@ -400,6 +400,14 @@ config QCOM_PMIC_GPIO
 	  Qualcomm SoCs PMIC.
 	  The GPIO bank is called "pmic"
 
+config PL061_GPIO
+	bool "Arm PL061 GPIO driver"
+	depends on DM_GPIO
+	help
+	  Support for the Arm PL061 GPIO controller, as found on vexpress
+	  boards, the QEMU 'virt' machine and various Arm SoCs. The bank has
+	  8 pins and is named after its device tree node.
+
 config PCF8575_GPIO
 	bool "PCF8575 I2C GPIO Expander driver"
 	depends on DM_GPIO && DM_I2C
