@@ -13,8 +13,14 @@
 #include <log.h>
 #include <asm/io.h>
 #include <asm/gpio.h>
+#include <linux/bitops.h>
 #include <linux/delay.h>
 #include <linux/input.h>
+
+/* The key acts as a modifier while it is held down */
+#define BUTTON_CHORD_MODIFIER	KEY_ENTER
+
+#define BUTTON_CHORD_MAX	((int)BITS_PER_TYPE(u32))
 
 /**
  * struct button_kbd_priv - driver private data
@@ -22,12 +28,37 @@
  * @input: input configuration
  * @button_size: number of buttons found
  * @old_state: a pointer to old button states array. Used to determine button state change.
+ * @chord_down: bitmask of buttons remapped by the modifier
+ * @mod_held: the modifier key is down
+ * @mod_used: the modifier has remapped a key while down
  */
 struct button_kbd_priv {
 	struct input_config *input;
 	u32 button_size;
 	u32 *old_state;
+	u32 chord_down;
+	bool mod_held;
+	bool mod_used;
 };
+
+static const struct {
+	int code;	/* keycode reported by button_get_code() */
+	int chorded;	/* what it becomes while the modifier is held */
+} chord_map[] = {
+	{ KEY_UP,   KEY_KPPLUS  },
+	{ KEY_DOWN, KEY_KPMINUS },
+};
+
+static int button_chord_code(int code)
+{
+	int i;
+	/* Return the chorded keycode for @code, or 0 */
+	for (i = 0; i < ARRAY_SIZE(chord_map); i++)
+		if (chord_map[i].code == code)
+			return chord_map[i].chorded;
+
+	return 0;
+}
 
 static int button_kbd_start(struct udevice *dev)
 {
@@ -72,7 +103,7 @@ int button_read_keys(struct input_config *input)
 	struct button_kbd_priv *priv = dev_get_priv(input->dev);
 	struct udevice *button_gpio_devp;
 	struct uclass *uc;
-	int i = 0;
+	int i, idx = 0;
 	u32 code, state, state_changed = 0;
 
 	uclass_id_foreach_dev(UCLASS_BUTTON, button_gpio_devp, uc) {
@@ -84,15 +115,46 @@ int button_read_keys(struct input_config *input)
 		if (!code)
 			continue;
 
-		state = button_get_state(button_gpio_devp);
+		i = idx++;
+		state = button_get_state(button_gpio_devp) == BUTTON_ON;
 		state_changed = state != priv->old_state[i];
+		priv->old_state[i] = state;
+
+		if (CONFIG_IS_ENABLED(BUTTON_REMAP_PHONE_KEYS)) {
+			int chorded_code;
+
+			if (code == BUTTON_CHORD_MODIFIER) {
+				priv->mod_held = state;
+				if (state_changed) {
+					if (state) {
+						priv->mod_used = false;
+					} else if (!priv->mod_used) {
+						input_add_keycode(input, code, false);
+						input_add_keycode(input, code, true);
+					}
+				}
+				continue;
+			}
+
+			chorded_code = button_chord_code(code);
+			if (chorded_code) {
+				u32 bit = i < BUTTON_CHORD_MAX ? BIT(i) : 0;
+
+				if (state_changed && state && priv->mod_held)
+					priv->chord_down |= bit;
+				if (priv->chord_down & bit) {
+					code = chorded_code;
+					priv->mod_used = true;
+					if (state_changed && !state)
+						priv->chord_down &= ~bit;
+				}
+			}
+		}
 
 		if (state_changed) {
 			debug("%s: %d\n", uc_plat->label, code);
-			priv->old_state[i] = state;
 			input_add_keycode(input, code, state);
 		}
-		i++;
 	}
 	return 0;
 }
